@@ -1,0 +1,112 @@
+name: release
+on:
+  push:
+    tags:
+      - 'v*'   
+
+permissions:
+  contents: write  
+
+env:
+  BIN_NAME: ducky
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            ext: ""
+            archive: tar.gz
+            shell: bash
+          - os: macos-latest
+            ext: ""
+            archive: tar.gz
+            shell: bash
+          - os: windows-latest
+            ext: ".exe"
+            archive: zip
+            shell: pwsh
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build (release)
+        run: cargo build --release
+
+      # Strip symbols on Unix to shrink binary
+      - name: Strip (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          strip "target/release/${{ env.BIN_NAME }}" || true
+
+      - name: Prepare dist dir
+        shell: ${{ matrix.shell }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $os  = "${{ runner.os }}"
+          $out = "${{ env.BIN_NAME }}-$tag-$os-x86_64"
+          mkdir dist
+          mkdir dist/$out
+          if ("${{ matrix.os }}" -eq "windows-latest") {
+            Copy-Item "target/release/${{ env.BIN_NAME }}${{ matrix.ext }}" "dist/$out/"
+          } else {
+            cp "target/release/${{ env.BIN_NAME }}${{ matrix.ext }}" "dist/$out/"
+          }
+
+      - name: Package artifact
+        shell: ${{ matrix.shell }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $os  = "${{ runner.os }}"
+          $out = "${{ env.BIN_NAME }}-$tag-$os-x86_64"
+          if ("${{ matrix.archive }}" -eq "zip") {
+            Compress-Archive -Path "dist/$out/*" -DestinationPath "dist/$out.zip"
+          } else {
+            tar -C dist -czf "dist/$out.tar.gz" "$out"
+          }
+
+      - name: Checksums
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd dist
+          for f in *.tar.gz *.zip 2>/dev/null; do
+            [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256"
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-artifacts
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifact directory
+        run: |
+          shopt -s globstar nullglob
+          mkdir out
+          mv dist/**/**/* out/ || true
+          mv dist/**/* out/ || true
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
