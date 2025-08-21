@@ -2,34 +2,22 @@ name: release
 on:
   push:
     tags:
-      - 'v*'   
+      - 'v*'        # e.g. v0.1.2
+  workflow_dispatch: {}   # optional: allow manual runs
 
 permissions:
-  contents: write  
+  contents: write
 
 env:
   BIN_NAME: ducky
 
 jobs:
   build:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            ext: ""
-            archive: tar.gz
-            shell: bash
-          - os: macos-latest
-            ext: ""
-            archive: tar.gz
-            shell: bash
-          - os: windows-latest
-            ext: ".exe"
-            archive: zip
-            shell: pwsh
-
-    runs-on: ${{ matrix.os }}
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -41,47 +29,34 @@ jobs:
       - name: Build (release)
         run: cargo build --release
 
-      # Strip symbols on Unix to shrink binary
+      # Unix: strip to shrink binary (optional)
       - name: Strip (Unix)
-        if: matrix.os != 'windows-latest'
-        run: |
-          strip "target/release/${{ env.BIN_NAME }}" || true
+        if: runner.os != 'Windows'
+        run: strip "target/release/${{ env.BIN_NAME }}" || true
 
-      - name: Prepare dist dir
-        shell: ${{ matrix.shell }}
+      # ---- Package (Linux/macOS) ----
+      - name: Package tar.gz (Unix)
+        if: runner.os != 'Windows'
         run: |
-          $tag = "${{ github.ref_name }}"
-          $os  = "${{ runner.os }}"
-          $out = "${{ env.BIN_NAME }}-$tag-$os-x86_64"
-          mkdir dist
-          mkdir dist/$out
-          if ("${{ matrix.os }}" -eq "windows-latest") {
-            Copy-Item "target/release/${{ env.BIN_NAME }}${{ matrix.ext }}" "dist/$out/"
-          } else {
-            cp "target/release/${{ env.BIN_NAME }}${{ matrix.ext }}" "dist/$out/"
-          }
+          TAG="${{ github.ref_name }}"
+          OUT="${{ env.BIN_NAME }}-${TAG}-${{ runner.os }}-x86_64"
+          mkdir -p "dist/$OUT"
+          cp "target/release/${{ env.BIN_NAME }}" "dist/$OUT/"
+          tar -C dist -czf "dist/$OUT.tar.gz" "$OUT"
+          (cd dist && shasum -a 256 "$OUT.tar.gz" > "$OUT.tar.gz.sha256")
 
-      - name: Package artifact
-        shell: ${{ matrix.shell }}
+      # ---- Package (Windows) ----
+      - name: Package zip (Windows)
+        if: runner.os == 'Windows'
         run: |
-          $tag = "${{ github.ref_name }}"
-          $os  = "${{ runner.os }}"
-          $out = "${{ env.BIN_NAME }}-$tag-$os-x86_64"
-          if ("${{ matrix.archive }}" -eq "zip") {
-            Compress-Archive -Path "dist/$out/*" -DestinationPath "dist/$out.zip"
-          } else {
-            tar -C dist -czf "dist/$out.tar.gz" "$out"
-          }
+          $TAG="${{ github.ref_name }}"
+          $OUT="$env:BIN_NAME-$TAG-${{ runner.os }}-x86_64"
+          New-Item -ItemType Directory -Force -Path "dist/$OUT" | Out-Null
+          Copy-Item "target/release/$env:BIN_NAME.exe" "dist/$OUT/"
+          Compress-Archive -Path "dist/$OUT/*" -DestinationPath "dist/$OUT.zip"
+        shell: pwsh
 
-      - name: Checksums
-        if: matrix.os != 'windows-latest'
-        run: |
-          cd dist
-          for f in *.tar.gz *.zip 2>/dev/null; do
-            [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256"
-          done
-
-      - name: Upload build artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}-artifacts
@@ -96,14 +71,12 @@ jobs:
         with:
           path: dist
 
-      - name: Flatten artifact directory
+      - name: Flatten files
         run: |
-          shopt -s globstar nullglob
-          mkdir out
-          mv dist/**/**/* out/ || true
-          mv dist/**/* out/ || true
+          mkdir -p out
+          find dist -type f -maxdepth 3 -print -exec mv {} out/ \; || true
 
-      - name: Create GitHub Release and upload assets
+      - name: Create GitHub Release & upload assets
         uses: softprops/action-gh-release@v2
         with:
           files: out/*
