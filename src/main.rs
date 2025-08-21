@@ -45,19 +45,28 @@ fn main() -> Result<()> {
         .map(|p| fs::metadata(p).map(|m| m.len()).unwrap_or(0))
         .sum();
 
-    if opts.list {
-        for p in &files {
-            println!("{}", p.display());
+    // Human-only section: don't print in JSON or summary-json modes
+    let human_mode = !opts.json && !opts.summary_json;
+    if human_mode {
+        if opts.list {
+            for p in &files {
+                println!("{}", p.display());
+            }
+            println!();
         }
-        println!();
+
+        if !opts.quiet {
+            println!(
+                "Matched {} files (>= {}) totaling {}",
+                files.len(),
+                ByteSize(opts.min_size.as_u64()),
+                ByteSize(total_size)
+            );
+        }
     }
 
-    println!(
-        "Matched {} files (>= {}) totaling {}",
-        files.len(),
-        ByteSize(opts.min_size.as_u64()),
-        ByteSize(total_size)
-    );
+    // In JSON/summary modes, do not print any human text to stdout.
+    // Warnings/timings still go to stderr via eprintln!.
 
     // Stage 1: by size
     let by_size = group_by_size(&files);
