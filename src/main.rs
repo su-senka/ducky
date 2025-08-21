@@ -121,7 +121,7 @@ fn main() -> Result<()> {
     if opts.json {
         print_json(&groups);
     } else if opts.summary_json {
-        // Only a single summary JSON object will be printed later after actions.
+        // A single summary JSON object is printed after actions.
     } else {
         // Sort groups by descending reclaimable bytes, then by size, then by first member
         let mut groups_sorted = groups.clone();

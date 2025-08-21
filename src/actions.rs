@@ -94,11 +94,10 @@ pub fn apply_actions(groups: &[DuplicateGroup], delete: bool, hardlink: bool, ye
     stats
 }
 
-/// Helper (optional): verify two paths are on the same device if you later want to
-/// pre-check hardlink feasibility. For v1, we rely on fs::hard_link errors.
+/// Helper to check whether two paths are on the same device.
+/// The current flow relies on `fs::hard_link` errors for feasibility.
 #[allow(dead_code)]
 fn _same_device(_a: &Path, _b: &Path) -> bool {
-    // Platform-specific device checks could go here in a future step.
     true
 }
 
