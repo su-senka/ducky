@@ -1,0 +1,21 @@
+[package]
+name = "ducky"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Fast, safe file deduplication CLI."
+repository = "https://github.com/yourname/ducky"
+
+[dependencies]
+anyhow = "1"
+bytesize = "1"
+clap = { version = "4", features = ["derive"] }
+ignore = "0.4"
+
+[dev-dependencies]
+assert_cmd = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
